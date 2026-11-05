@@ -1,0 +1,543 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Multi-Sport Math Arena</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;background:#081225;color:white;font-family:Arial,sans-serif;padding:16px}
+main{max-width:850px;margin:auto}
+h1{text-align:center;color:#67e8f9}
+.panel{background:#17243b;border:1px solid #334155;border-radius:16px;padding:18px;margin:14px 0}
+.row{display:flex;gap:10px;flex-wrap:wrap}
+.row>*{flex:1}
+button,input,select{font:inherit;border-radius:9px;padding:12px;border:1px solid #475569}
+button{background:#164e63;color:white;cursor:pointer;font-weight:bold}
+button:hover{background:#0e7490}
+button.selected{background:#0891b2;border-color:#67e8f9}
+input,select{background:#0f172a;color:white;width:100%;margin-top:7px}
+label{display:block;margin:12px 0}
+.primary{background:#10b981;color:#052e23;width:100%;font-size:20px}
+.hidden{display:none}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;text-align:center}
+.stat{background:#24344e;padding:12px;border-radius:10px}
+.stat strong{display:block;font-size:25px;color:#67e8f9}
+canvas{width:100%;height:auto;border-radius:12px;background:#ddd}
+.question{text-align:center;font-size:36px;font-weight:bold;margin:20px 0}
+#feedback{text-align:center;font-size:24px;font-weight:bold;min-height:36px}
+#answer{text-align:center;font-size:28px}
+.keys{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:12px}
+.keys button{font-size:23px;background:#334155}
+.small{color:#94a3b8;font-size:13px}
+.bar{height:13px;background:#334155;border-radius:9px;overflow:hidden}
+.fill{height:100%;background:#22d3ee}
+@media(max-width:500px){.stats{grid-template-columns:repeat(2,1fr)}h1{font-size:24px}}
+</style>
+</head>
+<body>
+<main>
+<h1>🏆 MULTI-SPORT MATH ARENA</h1>
+
+<div class="panel">
+<div class="stats">
+<div class="stat">Views<strong id="views">0</strong></div>
+<div class="stat">Plays<strong id="plays">0</strong></div>
+<div class="stat">Goals<strong id="goals">0</strong></div>
+<div class="stat">Best<strong id="best">0</strong></div>
+</div>
+</div>
+
+<div id="menu" class="panel">
+<h2>Choose Your Sport</h2>
+<div class="row">
+<button id="hockeyBtn" onclick="chooseSport('hockey')">🏒 Hockey</button>
+<button id="soccerBtn" onclick="chooseSport('soccer')">⚽ Soccer</button>
+<button id="lacrosseBtn" onclick="chooseSport('lacrosse')">🥍 Lacrosse</button>
+</div>
+
+<label>Math Difficulty
+<select id="difficulty">
+<option value="easy">Easy: Addition and Subtraction</option>
+<option value="medium" selected>Medium: Multiplication</option>
+<option value="hard">Hard: Mixed Math</option>
+</select>
+</label>
+
+<label>Game Mode
+<select id="mode">
+<option value="normal">Normal</option>
+<option value="sudden">Sudden Death</option>
+</select>
+</label>
+
+<label>How many questions do you want?
+<input id="questionCount" type="number" min="1" max="10000" value="10">
+</label>
+
+<label><input id="endless" type="checkbox" style="width:auto"> Endless Questions</label>
+
+<label>How many seconds per question?
+<input id="seconds" type="number" min="1" max="3600" value="15">
+</label>
+
+<label><input id="untimed" type="checkbox" style="width:auto"> No Time Limit</label>
+
+<p id="error" style="color:#fda4af"></p>
+
+<button class="primary" onclick="startGame()">▶ START GAME</button>
+<button style="width:100%;margin-top:10px" onclick="showStats()">📊 VIEW GAME STATS</button>
+</div>
+
+<div id="game" class="panel hidden">
+<div class="row" style="text-align:center">
+<div>Score: <b id="score">0</b></div>
+<div>Streak: <b id="streak">0</b></div>
+<div>Time: <b id="time">15</b></div>
+</div>
+<p id="progress" style="text-align:center"></p>
+<canvas id="arena" width="800" height="400"></canvas>
+<div id="feedback"></div>
+<div class="question" id="question"></div>
+<input id="answer" type="number" placeholder="Type your answer">
+<button class="primary" style="margin-top:10px" onclick="shoot()">🥅 SHOOT!</button>
+<div class="keys" id="keypad"></div>
+<button style="width:100%;margin-top:12px" onclick="backToMenu()">Main Menu</button>
+</div>
+
+<div id="finished" class="panel hidden" style="text-align:center">
+<h2>🏆 GAME OVER!</h2>
+<h1 id="finalScore"></h1>
+<p id="finalResult"></p>
+<p id="finalStreak"></p>
+<button class="primary" onclick="backToMenu()">PLAY AGAIN</button>
+</div>
+
+<div id="statsPage" class="panel hidden">
+<h2>📊 Game Statistics</h2>
+<p>These statistics are saved on this device.</p>
+<div id="sportStats"></div>
+<button style="width:100%;margin-top:20px" onclick="backToMenu()">BACK</button>
+</div>
+<p class="small" style="text-align:center">Multi-Sport Math Arena</p>
+</main>
+
+<script>
+let sport="hockey";
+let score=0,streak=0,maxStreak=0;
+let correct=0,done=0,limit=10;
+let answer=0,seconds=15,timeLeft=15;
+let timer=null,animation=null;
+let busy=false,playing=false;
+let shotProgress=0,shotResult=null;
+let pendingNext=null;
+
+const $=id=>document.getElementById(id);
+const canvas=$("arena");
+const ctx=canvas.getContext("2d");
+
+function getStat(name){
+return Number(localStorage.getItem("matharena_"+name)||0);
+}
+function setStat(name,value){
+localStorage.setItem("matharena_"+name,String(value));
+}
+function addStat(name){
+setStat(name,getStat(name)+1);
+}
+function refreshStats(){
+["views","plays","goals","best"].forEach(
+name=>$(name).textContent=getStat(name)
+);
+}
+addStat("views");
+refreshStats();
+
+function chooseSport(name){
+sport=name;
+["hockey","soccer","lacrosse"].forEach(s=>{
+$(s+"Btn").classList.toggle("selected",s===name);
+});
+drawArena();
+}
+chooseSport("hockey");
+
+function showScreen(id){
+["menu","game","finished","statsPage"].forEach(name=>{
+$(name).classList.toggle("hidden",name!==id);
+});
+}
+function stopTimers(){
+clearInterval(timer);
+clearTimeout(pendingNext);
+cancelAnimationFrame(animation);
+}
+function backToMenu(){
+playing=false;
+stopTimers();
+showScreen("menu");
+refreshStats();
+}
+
+function startGame(){
+const count=Number($("questionCount").value);
+const secs=Number($("seconds").value);
+const endless=$("endless").checked;
+const untimed=$("untimed").checked;
+
+if(!endless&&(!Number.isInteger(count)||count<1||count>10000)){
+$("error").textContent="Enter 1 to 10,000 questions.";
+return;
+}
+if(!untimed&&(!Number.isInteger(secs)||secs<1||secs>3600)){
+$("error").textContent="Enter 1 to 3,600 seconds.";
+return;
+}
+$("error").textContent="";
+stopTimers();
+score=0;
+streak=0;
+maxStreak=0;
+correct=0;
+done=0;
+limit=endless?Infinity:count;
+seconds=untimed?Infinity:secs;
+busy=false;
+playing=true;
+shotResult=null;
+addStat("plays");
+addStat("sport_"+sport);
+refreshStats();
+showScreen("game");
+updateDisplay();
+nextQuestion();
+}
+
+function random(min,max){
+return Math.floor(Math.random()*(max-min+1))+min;
+}
+function nextQuestion(){
+if(!playing)return;
+if(done>=limit){
+finishGame();
+return;
+}
+busy=false;
+shotResult=null;
+shotProgress=0;
+let a,b,op;
+const diff=$("difficulty").value;
+
+if(diff==="easy"){
+a=random(1,20);
+b=random(1,20);
+op=Math.random()<.5?"+":"−";
+if(op==="−"&&a<b)[a,b]=[b,a];
+answer=op==="+"?a+b:a-b;
+}else if(diff==="medium"){
+a=random(2,12);
+b=random(2,12);
+op="×";
+answer=a*b;
+}else{
+a=random(2,25);
+b=random(2,15);
+op=["+","−","×","÷"][random(0,3)];
+if(op==="÷"){
+answer=a;
+a=a*b;
+}else if(op==="+")answer=a+b;
+else if(op==="−")answer=a-b;
+else answer=a*b;
+}
+
+$("question").textContent=a+" "+op+" "+b+" = ?";
+$("answer").value="";
+$("feedback").textContent="";
+$("progress").textContent="Question "+(done+1)+
+(limit===Infinity?" • Endless":" of "+limit);
+timeLeft=seconds;
+updateDisplay();
+drawArena();
+clearInterval(timer);
+if(seconds!==Infinity){
+timer=setInterval(()=>{
+if(!playing||busy)return;
+timeLeft--;
+updateDisplay();
+if(timeLeft<=0){
+clearInterval(timer);
+resolveShot(false,true);
+}
+},1000);
+}
+}
+
+function updateDisplay(){
+$("score").textContent=score;
+$("streak").textContent=streak;
+$("time").textContent=timeLeft===Infinity?"∞":timeLeft;
+}
+
+function shoot(){
+if(!playing||busy)return;
+const raw=$("answer").value.trim();
+if(raw==="")return;
+const value=Number(raw);
+if(!Number.isFinite(value))return;
+resolveShot(value===answer,false);
+}
+
+function resolveShot(success,timedOut){
+if(busy||!playing)return;
+busy=true;
+clearInterval(timer);
+done++;
+shotResult=success;
+shotProgress=0;
+
+if(success){
+correct++;
+score+=100+streak*10;
+streak++;
+maxStreak=Math.max(maxStreak,streak);
+addStat("goals");
+if(score>getStat("best"))setStat("best",score);
+$("feedback").textContent="🥅 GOAL! + POINTS!";
+$("feedback").style.color="#4ade80";
+}else{
+streak=0;
+$("feedback").textContent=timedOut?
+"⏰ TIME UP! Answer: "+answer:
+"🧤 SAVED! Answer: "+answer;
+$("feedback").style.color="#fda4af";
+}
+refreshStats();
+updateDisplay();
+let started=null;
+function animate(now){
+if(!playing)return;
+if(started===null)started=now;
+shotProgress=Math.min(1,(now-started)/1100);
+drawArena();
+if(shotProgress<1){
+animation=requestAnimationFrame(animate);
+}else{
+pendingNext=setTimeout(()=>{
+if(!playing)return;
+if(!success&&$("mode").value==="sudden")finishGame();
+else nextQuestion();
+},700);
+}
+}
+animation=requestAnimationFrame(animate);
+}
+
+function finishGame(){
+playing=false;
+stopTimers();
+$("finalScore").textContent=score+" POINTS";
+$("finalResult").textContent=correct+" correct out of "+done+" questions";
+$("finalStreak").textContent="Best streak: "+maxStreak;
+showScreen("finished");
+}
+
+function showStats(){
+stopTimers();
+playing=false;
+const names=[
+["hockey","🏒 Hockey"],
+["soccer","⚽ Soccer"],
+["lacrosse","🥍 Lacrosse"]
+];
+const max=Math.max(1,...names.map(x=>getStat("sport_"+x[0])));
+$("sportStats").innerHTML=names.map(([key,label])=>{
+const n=getStat("sport_"+key);
+return '<p>'+label+': '+n+' plays</p>'+
+'<div class="bar"><div class="fill" style="width:'+
+(n/max*100)+'%"></div></div>';
+}).join("");
+showScreen("statsPage");
+}
+
+function line(x,y,X,Y,color,width=3){
+ctx.strokeStyle=color;
+ctx.lineWidth=width;
+ctx.beginPath();
+ctx.moveTo(x,y);
+ctx.lineTo(X,Y);
+ctx.stroke();
+}
+function circle(x,y,r,fill,stroke){
+ctx.beginPath();
+ctx.arc(x,y,r,0,Math.PI*2);
+if(fill){ctx.fillStyle=fill;ctx.fill();}
+if(stroke){ctx.strokeStyle=stroke;ctx.lineWidth=3;ctx.stroke();}
+}
+function rectangle(x,y,w,h,color,width=3){
+ctx.strokeStyle=color;
+ctx.lineWidth=width;
+ctx.strokeRect(x,y,w,h);
+}
+
+function drawArena(){
+const w=800,h=400;
+ctx.clearRect(0,0,w,h);
+
+if(sport==="hockey"){
+ctx.fillStyle="#e0f7ff";
+ctx.fillRect(0,0,w,h);
+rectangle(20,20,760,360,"#dc3545",4);
+line(220,20,220,380,"#2686cb",7);
+line(550,20,550,380,"#2686cb",7);
+line(400,20,400,380,"#dc3545",4);
+circle(400,200,65,null,"#dc3545");
+circle(145,200,55,null,"#dc3545");
+circle(650,200,55,null,"#dc3545");
+}else if(sport==="soccer"){
+ctx.fillStyle="#197c3a";
+ctx.fillRect(0,0,w,h);
+for(let i=0;i<8;i++){
+if(i%2===0){
+ctx.fillStyle="#248b45";
+ctx.fillRect(i*100,0,100,400);
+}
+}
+rectangle(25,20,750,360,"#eaffef");
+line(400,20,400,380,"#eaffef");
+circle(400,200,65,null,"#eaffef");
+rectangle(620,90,155,220,"#eaffef");
+rectangle(25,90,155,220,"#eaffef");
+}else{
+ctx.fillStyle="#267b82";
+ctx.fillRect(0,0,w,h);
+rectangle(20,20,760,360,"white");
+line(400,20,400,380,"#facc15",4);
+circle(400,200,65,null,"white");
+circle(665,200,85,null,"#facc15");
+circle(135,200,85,null,"#facc15");
+}
+
+drawNet();
+drawGoalie();
+drawBall();
+}
+
+function drawNet(){
+ctx.fillStyle="rgba(255,255,255,.25)";
+ctx.fillRect(698,125,80,150);
+for(let x=700;x<=778;x+=12){
+line(x,125,x,275,"#cbd5e1",1);
+}
+for(let y=125;y<=275;y+=12){
+line(698,y,778,y,"#cbd5e1",1);
+}
+rectangle(698,125,80,150,
+sport==="hockey"?"#ef4444":"#ffffff",7);
+}
+
+function drawGoalie(){
+let x=690,y=200;
+if(shotResult===true){
+x=690-45*Math.sin(shotProgress*Math.PI/2);
+y=200+25*Math.sin(shotProgress*Math.PI/2);
+}
+if(shotResult===false){
+x=690-25*Math.sin(shotProgress*Math.PI);
+}
+const jersey=sport==="hockey"?"#2563eb":
+sport==="soccer"?"#facc15":"#9333ea";
+const pants="#1e293b";
+
+circle(x,y+70,33,"rgba(0,0,0,.2)");
+line(x-12,y+22,x-24,y+54,pants,16);
+line(x+12,y+22,x+24,y+54,pants,16);
+line(x-24,y+54,x-35,y+55,"#111827",16);
+line(x+24,y+54,x+35,y+55,"#111827",16);
+
+ctx.fillStyle=jersey;
+ctx.fillRect(x-24,y-23,48,51);
+line(x-20,y-12,x-42,y+10,jersey,14);
+line(x+20,y-12,x+42,y+10,jersey,14);
+circle(x-42,y+10,12,"#f8fafc");
+circle(x+42,y+10,12,"#f8fafc");
+circle(x,y-44,21,
+sport==="hockey"?"#f8fafc":"#e9b78c",
+"#1e293b");
+
+if(sport==="hockey"){
+for(let i=-12;i<=12;i+=8){
+line(x+i,y-58,x+i,y-30,"#334155",2);
+}
+line(x-16,y-42,x+16,y-42,"#334155",2);
+}else{
+circle(x-7,y-46,2,"#111827");
+circle(x+7,y-46,2,"#111827");
+}
+ctx.fillStyle="white";
+ctx.textAlign="center";
+ctx.font="bold 20px Arial";
+ctx.fillText("1",x,y+10);
+}
+
+function drawBall(){
+let x=145,y=205;
+const t=shotProgress;
+
+if(shotResult===true){
+x=145+610*t;
+y=205+32*Math.sin(t*Math.PI/2);
+}else if(shotResult===false){
+if(t<.78){
+x=145+520*(t/.78);
+y=205;
+}else{
+x=665-(t-.78)*650;
+y=205-(t-.78)*180;
+}
+}
+
+if(sport==="hockey"){
+ctx.fillStyle="#111827";
+ctx.beginPath();
+ctx.ellipse(x,y,15,7,0,0,Math.PI*2);
+ctx.fill();
+}else if(sport==="soccer"){
+circle(x,y,13,"white","#111827");
+circle(x,y,5,"#111827");
+}else{
+circle(x,y,11,"#fb923c","white");
+}
+
+if(shotResult===true&&t>=1){
+ctx.fillStyle="#fef08a";
+ctx.font="bold 48px Arial";
+ctx.textAlign="center";
+ctx.fillText("GOAL!",400,95);
+}
+}
+
+const keys=["1","2","3","4","5","6","7","8","9","-","0","⌫"];
+keys.forEach(key=>{
+const button=document.createElement("button");
+button.textContent=key;
+button.onclick=()=>{
+if(!playing||busy)return;
+const input=$("answer");
+if(key==="⌫")input.value=input.value.slice(0,-1);
+else if(key==="-"){
+if(!input.value)input.value="-";
+}else input.value+=key;
+};
+$("keypad").appendChild(button);
+});
+
+$("answer").addEventListener("keydown",e=>{
+if(e.key==="Enter")shoot();
+});
+
+drawArena();
+</script>
+</body>
+</html>
